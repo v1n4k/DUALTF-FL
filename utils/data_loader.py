@@ -250,14 +250,32 @@ def load_PSM(seq_length=100, stride=1, historical=False):
     # interval:  equally-spaced 1 minute apart
     path = f'./datasets/PSM'
 
+    subset_fraction = 0.04  # use only 4% of the dataset to reduce edge-device memory use
+    min_required = seq_length + 1 if seq_length > 0 else 1
+
+    def _subset_row_count(csv_file):
+        with open(csv_file, 'r') as fh:
+            total_rows = sum(1 for _ in fh) - 1
+        total_rows = max(total_rows, 0)
+        if total_rows == 0:
+            return 0
+        target = max(1, int(total_rows * subset_fraction))
+        target = max(min_required, target)
+        return min(total_rows, target)
+
+    train_rows = _subset_row_count(f'{path}/train.csv')
+    test_rows = _subset_row_count(f'{path}/test.csv')
+    if train_rows == 0 or test_rows == 0:
+        raise ValueError('PSM dataset is empty after applying the subset fraction.')
+
     x_train, x_valid, x_test = [], [], []
     y_valid, y_test = [], []
     y_segment_valid, y_segment_test = [], []
     train_seq, label_seq, test_seq = [], [], []
     
-    train_df = pd.read_csv(f'{path}/train.csv').iloc[:, 1:].fillna(method="ffill").values
-    test_df = pd.read_csv(f'{path}/test.csv').iloc[:, 1:].fillna(method="ffill").values
-    labels = pd.read_csv(f'{path}/test_label.csv')['label'].values.astype(int)
+    train_df = pd.read_csv(f'{path}/train.csv', nrows=train_rows).iloc[:, 1:].fillna(method="ffill").values
+    test_df = pd.read_csv(f'{path}/test.csv', nrows=test_rows).iloc[:, 1:].fillna(method="ffill").values
+    labels = pd.read_csv(f'{path}/test_label.csv', nrows=test_rows)['label'].values.astype(int)
 
     scaler = MinMaxScaler(feature_range=(0, 1))
     train_df = scaler.fit_transform(train_df)

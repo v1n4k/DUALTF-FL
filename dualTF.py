@@ -67,9 +67,10 @@ class EarlyStopping:
 class TimeReconstructor(object):
     DEFAULTS = {}
 
-    def __init__(self, opts):
+    def __init__(self, opts, wandb=None):
 
         self.__dict__.update(TimeReconstructor.DEFAULTS, **opts)
+        self.wandb = wandb
 
         self.build_model()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -109,7 +110,7 @@ class TimeReconstructor(object):
     def progress(self):
         print("======================TRAIN MODE======================")
         
-        time_now = time.time()
+        train_start_time = time.time()
         if self.dataset == 'NeurIPSTS':
             print(f'================={self.dataset}_{self.form}======================')
             train_loader, label_seq, test_seq = get_loader_segment(batch_size=self.batch_size, seq_length=self.seq_length, form=self.form, step=self.step, mode='train', dataset=self.dataset)
@@ -157,9 +158,17 @@ class TimeReconstructor(object):
                 loss1_list.append((rec_loss - self.k * series_loss).item())
                 loss1 = rec_loss - self.k * series_loss
                 loss2 = rec_loss + self.k * prior_loss
+                
+                if self.wandb:
+                    self.wandb.log({
+                        'reconstruction_loss': rec_loss.item(),
+                        'association_discrepancy_series': series_loss.item(),
+                        'association_discrepancy_prior': prior_loss.item(),
+                        'lr': self.optimizer.param_groups[0]['lr']
+                    })
 
                 if (i + 1) % 100 == 0:
-                    speed = (time.time() - time_now) / iter_count
+                    speed = (time.time() - epoch_time) / iter_count
                     left_time = speed * ((self.num_epochs - epoch) * train_steps - i)
                     print('\tspeed: {:.4f}s/iter; left time: {:.4f}s'.format(speed, left_time))
                     iter_count = 0
@@ -182,7 +191,9 @@ class TimeReconstructor(object):
                 break
             adjust_learning_rate(self.optimizer, epoch + 1, self.lr)
 
-        print("Total Time: {}".format(time.time() - time_now))
+        training_time = time.time() - train_start_time
+        if self.wandb:
+            self.wandb.log({'training_time': training_time})
 
         print("======================TEST MODE======================")
         if self.dataset == 'NeurIPSTS':
@@ -251,7 +262,7 @@ class TimeReconstructor(object):
         # (3) evaluation on the test set
         test_labels = []
         attens_energy = []
-        inference_time = time.time()
+        inference_time_start = time.time()
         for i, (input_data, labels) in enumerate(thre_loader):
             input = input_data.float().to(self.device)
             output, series, prior, _ = self.model(input)
@@ -274,6 +285,10 @@ class TimeReconstructor(object):
             attens_energy.append(cri)
             test_labels.append(labels)
         
+        inference_time = time.time() - inference_time_start
+        if self.wandb:
+            self.wandb.log({'inference_time': inference_time})
+
         print(f'Test labels shape: {test_labels[0].shape}')
         attens_energy_old = np.concatenate(attens_energy, axis=0).reshape(-1)
         test_labels_old = np.concatenate(test_labels, axis=0).reshape(-1)
@@ -291,12 +306,10 @@ class TimeReconstructor(object):
         print("pred:   ", pred.shape)
         print("gt:     ", gt.shape)
 
-        print("### Inference time: {}".format(time.time() - inference_time))
+        print("### Inference time: {}".format(time.time() - inference_time_start))
 
         print('########## New Evaluation ##########')
         evaluation_arrays = []
-        # For plotting evaluation results
-        evaluation_array = np.zeros((7, len(test_seq)))
         predicted_normal_array = np.zeros((len(test_seq)))
         predicted_anomaly_array = np.zeros((len(test_seq)))
         rec_error_array = np.zeros((len(test_seq)))
@@ -436,9 +449,10 @@ class TimeReconstructor(object):
 class FreqReconstructor(object):
     DEFAULTS = {}
 
-    def __init__(self, opts):
+    def __init__(self, opts, wandb=None):
 
         self.__dict__.update(FreqReconstructor.DEFAULTS, **opts)
+        self.wandb = wandb
 
         self.build_model()
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -475,6 +489,7 @@ class FreqReconstructor(object):
 
     def progress(self):
         print("===========================TRAIN MODE===========================")
+        train_start_time = time.time()
         if self.dataset == 'NeurIPSTS':
             print(f'================={self.dataset}_{self.form}======================')
             train_loader, test_loader, label_seq, test_seq, y_tests, grand_label = get_loader_grandwin(self.batch_size, self.seq_length, self.nest_length, self.form, self.step, dataset=self.dataset, data_loader=self.data_loader)
@@ -520,6 +535,14 @@ class FreqReconstructor(object):
                 loss1_list.append((rec_loss - self.k * series_loss).item())
                 loss1 = rec_loss - self.k * series_loss
                 loss2 = rec_loss + self.k * prior_loss
+                
+                if self.wandb:
+                    self.wandb.log({
+                        'reconstruction_loss': rec_loss.item(),
+                        'association_discrepancy_series': series_loss.item(),
+                        'association_discrepancy_prior': prior_loss.item(),
+                        'lr': self.optimizer.param_groups[0]['lr']
+                    })
 
                 if (i + 1) % 100 == 0:
                     speed = (time.time() - time_now) / iter_count
@@ -543,7 +566,10 @@ class FreqReconstructor(object):
                 print("Early stopping")
                 break
             adjust_learning_rate(self.optimizer, epoch + 1, self.lr)
-        print("Total Time: {}".format(time.time() - time_now))
+        
+        training_time = time.time() - train_start_time
+        if self.wandb:
+            self.wandb.log({'training_time': training_time})
 
         print("======================TEST MODE======================")
         if self.dataset == 'NeurIPSTS':
@@ -614,7 +640,7 @@ class FreqReconstructor(object):
         ############################ Alignment Module ############################
         grand_labels = []
         sub_evaluation_arrays = []
-        inference_time = time.time()
+        inference_time_start = time.time()
         ############################ Alignment Module ############################
         test_labels = []
         attens_energy = []
@@ -639,6 +665,10 @@ class FreqReconstructor(object):
             cri = cri.detach().cpu().numpy()
             attens_energy.append(cri)
             test_labels.append(labels)
+        
+        inference_time = time.time() - inference_time_start
+        if self.wandb:
+            self.wandb.log({'inference_time': inference_time})
                 
         print(f'Test labels shape: {test_labels[0].shape}')
         attens_energy = np.concatenate(attens_energy, axis=0)
@@ -653,7 +683,7 @@ class FreqReconstructor(object):
         # After
         # nested_test_energy: (301, 76, 25/2, d), test_labels: (301, 76, 25, )
 
-        print("### Inference time: {}".format(time.time() - inference_time))
+        print("### Inference time: {}".format(time.time() - inference_time_start))
 
         nested_test_energy = test_energy.reshape(test_energy.shape[0], self.seq_length-self.nest_length+1, self.nest_length//2)
         ###################################### Alignment ##############################################

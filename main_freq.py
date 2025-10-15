@@ -1,5 +1,8 @@
 import argparse
 import os
+import wandb
+import psutil
+import time
 
 from dualTF import FreqReconstructor
 import torch
@@ -10,12 +13,18 @@ gc.collect()
 torch.cuda.empty_cache()
 
 def main(opts):
+    wandb.init(project="DualTF-Freq", config=opts)
     cudnn.benchmark = True
     # check settings
     print(f"GPU_ID: {opts.gpu_id}") 
 
-    framework = FreqReconstructor(vars(opts))
+    framework = FreqReconstructor(vars(opts), wandb)
     framework.progress()
+    
+    process = psutil.Process(os.getpid())
+    peak_memory = process.memory_info().rss / 1024 ** 3 # in GB
+    wandb.log({"peak_memory_gb": peak_memory})
+    
     return framework
     
 
@@ -23,24 +32,24 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Settings for Daul-TF (Frequency)')
 
     # hardware settings
-    parser.add_argument('--gpu_id', default='4', type=str, help='gpu_ids: e.g. 0, 1, 2, 3, 4, 5, 6')
+    parser.add_argument('--gpu_id', default='0', type=str, help='gpu_ids: e.g. 0, 1, 2, 3, 4, 5, 6')
 
     # model settings
     parser.add_argument('--lr', type=float, default=1e-4)
-    parser.add_argument('--num_epochs', type=int, default=10)
+    parser.add_argument('--num_epochs', type=int, default=5)
     parser.add_argument('--k', type=int, default=5)
-    parser.add_argument('--seq_length', type=int, default=100)
+    parser.add_argument('--seq_length', type=int, default=75)
     parser.add_argument('--nest_length', type=int, default=25)
-    parser.add_argument('--input_c', type=int, default=1)
-    parser.add_argument('--output_c', type=int, default=1)
+    parser.add_argument('--input_c', type=int, default=25)
+    parser.add_argument('--output_c', type=int, default=25)
     parser.add_argument('--step', type=int, default=1)
-    parser.add_argument('--batch_size', type=int, default=64)
-    parser.add_argument('--dataset', type=str, default='NeurIPSTS')
-    parser.add_argument('--form', type=str, default='seasonal')
+    parser.add_argument('--batch_size', type=int, default=16)
+    parser.add_argument('--dataset', type=str, default='PSM')
+    parser.add_argument('--form', type=str, default='')
     parser.add_argument('--model_save_path', type=str, default='checkpoints')
     parser.add_argument('--anormly_ratio', type=float, default=1)
     parser.add_argument('--data_num', type=int, default=0)
-    parser.add_argument('--data_loader', type=str, default='load_tods')
+    parser.add_argument('--data_loader', type=str, default='load_PSM')
 
     opts = parser.parse_args()
 
